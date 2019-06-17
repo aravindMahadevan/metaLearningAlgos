@@ -11,6 +11,10 @@ import numpy as np
 import random
 from torch.autograd import Variable
 
+#this file contains the data loader for omniglot 
+#this takes in the current working directory and it must have a data folder where both 
+#the images_background and images_evaluation are located. You also specify what sort of 
+#task will we doing i.e K shot N way classification. 
 class OmniglotDataLoader():
     def __init__(self, root_dir, K, N, image_size = (28,28), trainSize = 1200, minibatch_size = 10):
         self.root_dir = root_dir 
@@ -33,6 +37,9 @@ class OmniglotDataLoader():
         self.numShots = K
         self.minibatch_size = minibatch_size 
         
+    #In this method, it aggregates all the characters across both the images_background 
+    #directory and images_evaluation directory. This will return a list of paths to all characters 
+    #in both directory. In total should have 1623 characters. 
     def getAllCharactersFrom(self, languageDir1, languageDir2):
         #get all characters from languageDir1 
         alphabets_in_languageDir1 = os.listdir(languageDir1)
@@ -84,9 +91,12 @@ class OmniglotDataLoader():
         return training_set, validation_set, testing_set
             
         
-    #with the training, testing, and validation example
-    #augment the data set by performing 90 degree angle rotations
-    #
+    #given a list of training paths and labels, validation paths and labels, 
+    #this method first opens the image and then converts the image to a tensor. 
+    #Did not normalize since the original Reptile paper made no mention to normalize 
+    #the images. Furthermore, if the image is in the training set, I augment the training 
+    #set by rotating the image by 90, 180, and 270 degrees. The returned output returns 
+    #the tensored training set and validation set. 
     def augment_and_create_dataset(self, training_paths, training_labels, validation_paths,
                                   validation_labels):
         transform = tv.transforms.Compose([tv.transforms.Resize(self.image_size),
@@ -111,6 +121,9 @@ class OmniglotDataLoader():
         
         return training_set, validation_set
     
+    #based on the training set and labels, this method creates a set of mini batches 
+    #based on what was specified in the constructor. This method shuffles the training set and 
+    #after shuffling creates a mini batch. 
     def create_mini_batches(self, training_tensorList_and_labels, validation_tensorList_and_labels):
         #separate training set into minibatches and return 
         random.shuffle(validation_tensorList_and_labels)
@@ -140,7 +153,11 @@ class OmniglotDataLoader():
             training_batch.append((curr_training_batch_t,curr_training_batch_l))
         return training_batch, validation_batch 
         
-        
+    
+    #This method is used for sampling tasks from the training set. This 
+    #method chooses which N tasks to sample. From those N tasks, 
+    #we then choose K examples from each. After this we then 
+    #create mini batches 
     def sample_task_from_training_and_val(self):
         #choose a random class to classify from training set 
         chosen_dataset = self.training_set
@@ -167,7 +184,7 @@ class OmniglotDataLoader():
             validation_set.append((validation_images,labels[idx]))
             idx+=1
 
-            training_tensorList_and_labels = []
+        training_tensorList_and_labels = []
         validation_tensorList_and_labels = []
         
         #get transform and augment training images

@@ -58,7 +58,8 @@ class ReptileExperiment():
                 'dataLoader' : self.dataLoader,
                 'totalGradSteps' : self.totalGradSteps
                }
-    
+    #this method retrieves saved data from disk and updates 
+    #their respective fields. 
     def load_state_dict(self, checkpoint):
         # load from pickled checkpoint
         self.model.load_state_dict(checkpoint['model'])
@@ -75,13 +76,16 @@ class ReptileExperiment():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
                     state[k] = v.to(self.device)
-                    
+    
+    #this method saves all the data we wish to save in the case 
+    #that the computer shuts off or if there is any issues
     def saveState(self):
         """Saves the experiment on disk, i.e, create/update the last checkpoint."""
         torch.save(self.state_dict(), self.checkpoint_path)
         with open(self.config_path, 'w+') as f:
             print(self, file=f)
     
+    #this method loads the saved data from disk
     def loadState(self):
         """Loads the experiment from the last checkpoint saved on disk."""
         checkpoint = torch.load(self.checkpoint_path,
@@ -89,10 +93,15 @@ class ReptileExperiment():
         self.load_state_dict(checkpoint)
         del checkpoint
 
-    
+    #based on the checkpoint_path specified, this method determines whether we need to 
+    #load from disk 
     def checkpoint_exists(self):
         return os.path.exists(self.checkpoint_path) and os.path.exists(self.config_path)
+       
         
+    #during training/after training, we evaluate the predictive capabilties of the model 
+    #we go through the batch of examples given and then compute the accuracy and cross
+    #entropy loss. 
     def evaluateModel(self, model, chosen_batch, mode='during_training'):
         model.eval()
         loss = 0 
@@ -114,12 +123,20 @@ class ReptileExperiment():
             self.model.train()
         return loss, accuracy 
     
+    #this method is specifically used once the model is done training. This method 
+    #specifically samples from the test set rather than the training set. The reason we 
+    #do this is because we want to see how well the model can adapt to learning new characters. 
+    #This method chooses 1 class from the testing set and from that 1 class, we choose K examples
+    #as a training set and the rest as a testing set. We then perform fine tuning with the K examples 
+    #from the training set. Furthermore, when doing fine tuning we take 50 gradient steps rather 
+    #than 5 gradient steps as outlined by the paper. We furthermore print the loss and accuracy. 
+    #When evaluating the test set with the model, I am observing that it is getting to 100% accuracy. 
     def evaluateModelTest(self):
         #sample a task from test_set 
         #choose K examples from test_set and train on those         
         chosen_dataset = self.dataLoader.test_set 
         random.shuffle(chosen_dataset)
-        chosen_class = chosen_dataset[:num_classes]
+        chosen_class = chosen_dataset[0]
         images = [chosen_class[1] + '/' + image for image in os.listdir(chosen_class[1])]
         training_images = images[:self.dataLoader.numShots]
         test_images = images[self.dataLoader.numShots:]
@@ -131,7 +148,8 @@ class ReptileExperiment():
         loss, accuracy = self.evaluateModel(new_model,test_batch)
         print(loss, accuracy)
         return loss, accuracy
-        
+    
+    #This is the main method that runs the experiment. 
     def run(self):
         self.model.to(self.device)
         #check if path exists and checkpoint exists and reload everything
@@ -140,7 +158,7 @@ class ReptileExperiment():
             #take k gradient steps
             train_batch, val_batch = self.dataLoader.sample_task_from_training_and_val()
             newModel = self.takeGradientSteps(train_batch)
-            #from new model update model with new params
+            #from new model update model with new params 
             for currParams, newParams in zip(self.model.parameters(), newModel.parameters()):
                 if currParams.grad is None: #if gradient doesn't exist or not initialized 
                     currParams.grad = Variable(torch.zeros(newParams.size())).to(self.device) #initialize the params for update
@@ -154,7 +172,6 @@ class ReptileExperiment():
             #during validation, we are testing to see how well the model adjusts to an unseen task after 
             #k gradient steps
             if self.curr_iter % 1000 == 0:
-                import pdb; pdb.set_trace()
                 #evaluate meta learning loss on training and validation set
                 training_stat = self.evaluateModel(self.model, train_batch)
                 self.training_loss.append(training_stat[0])
@@ -163,13 +180,16 @@ class ReptileExperiment():
                 self.validation_loss.append(validation_stat[0])
                 print('iteration ' + str(self.curr_iter) + " avg training_loss: " + str(np.mean(self.training_loss)))
                 print('iteration ' + str(self.curr_iter) + " avg validation_loss: " + str(np.mean(self.validation_loss)))
-            
-                
                 self.saveState()
             self.curr_iter+=1
         print('done training!')
         return self.model     
 
+    #This method performs the fine tuning. In this method, we get a chosen_task 
+    #and perform k steps of SGD. We first instantiate a neural network and transfer 
+    #the weights of the meta learner's weights to this model. We then perform 10 steps 
+    #of SGD from which the neural network with weights W becomes a neural network with weights 
+    #phi. We return the neural network with weights phi. 
     def takeGradientSteps(self, chosen_batch, mode='training'):
         if mode == 'training':
             K = self.totalGradSteps

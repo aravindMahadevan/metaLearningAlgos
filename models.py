@@ -4,6 +4,10 @@ from torch.autograd import variable
 import torchvision as tv
 import torch
 
+#Simple 4 layer conv net with batch norm. At the end of the 4th layer, we have a linear layer 
+#that outputs a value for the number of classes chosen. Although the paper states that the final 
+#layer uses softmax activation, I use a linear layer and linear activation but use nn.CrossEntropyLoss
+#which does a log softmax inside of it. With this there is no need to do softmax activation. 
 class OmniglotModel(nn.Module):
     def __init__(self, num_classes, C=64):
         super(OmniglotModel, self).__init__()
