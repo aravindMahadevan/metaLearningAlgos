@@ -25,9 +25,10 @@ class ReptileExperiment():
         self.training_loss = []
         self.validation_loss = []
         self.curr_iter = 0
-        os.makedirs(checkpoint_dir, exist_ok=True)
-        self.checkpointPath = os.path.join(checkpoint_dir,"checkpoint.pth.tar")
+        self.checkpoint_path = os.path.join(checkpoint_dir,"checkpoint.pth.tar")
         self.config_path =  os.path.join(checkpoint_dir,"config.txt")
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
         # Transfer all local arguments/variables into attributes
         locs = {k: v for k, v in locals().items() if k is not 'self'}
         self.__dict__.update(locs)
@@ -77,7 +78,7 @@ class ReptileExperiment():
                     
     def saveState(self):
         """Saves the experiment on disk, i.e, create/update the last checkpoint."""
-        torch.save(self.state_dict(), self.checkpointPath)
+        torch.save(self.state_dict(), self.checkpoint_path)
         with open(self.config_path, 'w+') as f:
             print(self, file=f)
     
@@ -90,22 +91,47 @@ class ReptileExperiment():
 
     
     def checkpoint_exists(self):
-        return os.path.exists(self.checkpointPath) and os.path.exists(self.config_path)
+        return os.path.exists(self.checkpoint_path) and os.path.exists(self.config_path)
         
     def evaluateModel(self, model, chosen_batch, mode='during_training'):
-        self.model.eval()
+        model.eval()
         loss = 0 
+        accuracy = 0
+        total_num_examples = 0
         with torch.no_grad(): 
             for batch, labels in chosen_batch:
                 batch_var = Variable(batch.to(self.device))
-                label_var = Variable(labels.to(self.device))
+                label_var = Variable(labels.squeeze().to(self.device))
                 label_pred = model(batch_var)
+                _,pred_class = torch.max(label_pred, 1)
+                total_num_examples+= label_var.shape[0]
+                accuracy += (torch.sum((pred_class == label_var).data).item())
                 cross_entropy_loss = self.loss_func(label_pred,label_var)
-                loss += cross_entropy_loss.item()        
+                
+                loss += cross_entropy_loss.item()  
+        accuracy = accuracy/total_num_examples
         if mode == 'during_training':
             self.model.train()
-        return loss
-
+        return loss, accuracy 
+    
+    def evaluateModelTest(self):
+        #sample a task from test_set 
+        #choose K examples from test_set and train on those         
+        chosen_dataset = self.dataLoader.test_set 
+        random.shuffle(chosen_dataset)
+        chosen_class = chosen_dataset[:num_classes]
+        images = [chosen_class[1] + '/' + image for image in os.listdir(chosen_class[1])]
+        training_images = images[:self.dataLoader.numShots]
+        test_images = images[self.dataLoader.numShots:]
+        labels_train = [0]*len(training_images)
+        labels_test = [0]
+        training_tensorList_and_labels, test_tensorList_and_labels = self.dataLoader.augment_and_create_dataset(training_images, labels_train, test_images, labels_test)
+        train_batch, test_batch = self.dataLoader.create_mini_batches(training_tensorList_and_labels,test_tensorList_and_labels)        
+        new_model = self.takeGradientSteps(train_batch,mode='testing')
+        loss, accuracy = self.evaluateModel(new_model,test_batch)
+        print(loss, accuracy)
+        return loss, accuracy
+        
     def run(self):
         self.model.to(self.device)
         #check if path exists and checkpoint exists and reload everything
@@ -124,29 +150,39 @@ class ReptileExperiment():
             self.meta_optimizer.step()
             #set optimizer to zero for next iteration of learning 
             self.meta_optimizer.zero_grad()
-            #evaluate meta learning loss on training and validation set
-            self.training_loss.append(self.evaluateModel(newModel, train_batch))
-            
-            newModel = self.takeGradientSteps(val_batch)
-            self.validation_loss.append(self.evaluateModel(newModel, val_batch))
+
             #during validation, we are testing to see how well the model adjusts to an unseen task after 
             #k gradient steps
             if self.curr_iter % 1000 == 0:
+                import pdb; pdb.set_trace()
+                #evaluate meta learning loss on training and validation set
+                training_stat = self.evaluateModel(self.model, train_batch)
+                self.training_loss.append(training_stat[0])
+                newModel = self.takeGradientSteps(val_batch)
+                validation_stat = self.evaluateModel(newModel, val_batch)
+                self.validation_loss.append(validation_stat[0])
                 print('iteration ' + str(self.curr_iter) + " avg training_loss: " + str(np.mean(self.training_loss)))
                 print('iteration ' + str(self.curr_iter) + " avg validation_loss: " + str(np.mean(self.validation_loss)))
+            
+                
                 self.saveState()
             self.curr_iter+=1
         print('done training!')
         return self.model     
 
-    def takeGradientSteps(self, chosen_batch):
+    def takeGradientSteps(self, chosen_batch, mode='training'):
+        if mode == 'training':
+            K = self.totalGradSteps
+        elif mode == 'testing':
+            K = 50
         new_model = OmniglotModel(self.model.num_classes).to(self.device)
+        new_model.train()
         #new model parameters equal to initial model parameters 
         new_model.load_state_dict(self.model.state_dict()) 
         inner_optimizer = torch.optim.SGD(new_model.parameters(), lr=self.lr_inner)
         #sample batch of tasks 
         #take K gradient steps and perform SGD to update parameters 
-        for k in range(self.totalGradSteps): 
+        for k in range(K): 
             for batch, labels in chosen_batch: 
                 batch_var = Variable(batch).to(self.device)
                 label_var = Variable(labels).to(self.device)
@@ -156,6 +192,9 @@ class ReptileExperiment():
                 cross_entropy_loss.backward()
                 inner_optimizer.step()
         return new_model
+
+
+
 
 DATA_PATH = os.getcwd()
 print(DATA_PATH)
