@@ -107,6 +107,7 @@ class ReptileExperiment():
         return loss
 
     def run(self):
+        self.model.to(self.device)
         #check if path exists and checkpoint exists and reload everything
         self.model.train()    
         while self.curr_iter < self.meta_iter:
@@ -116,7 +117,7 @@ class ReptileExperiment():
             #from new model update model with new params
             for currParams, newParams in zip(self.model.parameters(), newModel.parameters()):
                 if currParams.grad is None: #if gradient doesn't exist or not initialized 
-                    currParams.grad = Variable(torch.zeros(newParams.size())) #initialize the params for update
+                    currParams.grad = Variable(torch.zeros(newParams.size())).to(self.device) #initialize the params for update
                 currParams.grad.data.add_(self.epsilon*(currParams.data - newParams.data)) #(update)
             #update the model parameters, take step first 
             #as loss is based on the loss from learner
@@ -130,7 +131,7 @@ class ReptileExperiment():
             self.validation_loss.append(self.evaluateModel(newModel, val_batch))
             #during validation, we are testing to see how well the model adjusts to an unseen task after 
             #k gradient steps
-            if self.curr_iter % 1 == 0:
+            if self.curr_iter % 1000 == 0:
                 print('iteration ' + str(self.curr_iter) + " avg training_loss: " + str(np.mean(self.training_loss)))
                 print('iteration ' + str(self.curr_iter) + " avg validation_loss: " + str(np.mean(self.validation_loss)))
                 self.saveState()
@@ -139,7 +140,7 @@ class ReptileExperiment():
         return self.model     
 
     def takeGradientSteps(self, chosen_batch):
-        new_model = OmniglotModel(self.model.num_classes)
+        new_model = OmniglotModel(self.model.num_classes).to(self.device)
         #new model parameters equal to initial model parameters 
         new_model.load_state_dict(self.model.state_dict()) 
         inner_optimizer = torch.optim.SGD(new_model.parameters(), lr=self.lr_inner)
@@ -147,8 +148,8 @@ class ReptileExperiment():
         #take K gradient steps and perform SGD to update parameters 
         for k in range(self.totalGradSteps): 
             for batch, labels in chosen_batch: 
-                batch_var = Variable(batch.to(self.device))
-                label_var = Variable(labels.to(self.device))
+                batch_var = Variable(batch).to(self.device)
+                label_var = Variable(labels).to(self.device)
                 label_pred = new_model(batch_var)
                 cross_entropy_loss = self.loss_func(label_pred,label_var)
                 inner_optimizer.zero_grad()
