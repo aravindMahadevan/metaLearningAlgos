@@ -15,9 +15,9 @@
 
 #### dataloader.py contains functions that will be used to manipulate images found in data/images_evaluation and data/images_background, this file is mainly used to create mini batches and augmentation of training set for training our meta learner. 
 
-### ReptileSineWaveExperiment.ipynb is a python notebook that demonstrates how well Reptile performs on a simple sine regression task.
+#### ReptileSineWaveExperiment.ipynb is a python notebook that demonstrates how well Reptile performs on a simple sine regression task.
 
 
-### The link to the original paper is: https://arxiv.org/pdf/1803.02999.pdf. 
+#### The link to the original paper is: https://arxiv.org/pdf/1803.02999.pdf. 
 
 
